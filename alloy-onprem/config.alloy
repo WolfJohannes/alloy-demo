@@ -1,0 +1,35 @@
+prometheus.exporter.self "test" {}
+
+prometheus.scrape "test" {
+  targets    = prometheus.exporter.self.test.targets
+  forward_to = [otelcol.receiver.prometheus.test.receiver]
+}
+
+otelcol.receiver.prometheus "test" {
+  output {
+    metrics = [otelcol.exporter.otlp.aws.input]
+  }
+}
+
+otelcol.auth.oauth2 "keycloak" {
+  client_id     = "demo-client"
+  client_secret = sys.env("ALLOY_CLIENT_SECRET")
+
+  token_url = "https://envoy:443/token"
+  
+  tls {
+    insecure_skip_verify = true
+  }
+}
+
+otelcol.exporter.otlp "aws" {
+  client {
+    endpoint = "envoy:443"
+
+    auth = otelcol.auth.oauth2.keycloak.handler
+
+    tls {
+      insecure_skip_verify = true
+    }
+  }
+}

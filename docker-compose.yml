@@ -1,0 +1,65 @@
+services:
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command:
+      - start-dev
+      - --import-realm
+      - --http-port=8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: keycloak
+      KC_HOSTNAME_PORT: 8080
+      KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro,Z
+    ports:
+      - "8080:8080"
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/index.html:/usr/share/nginx/html/index.html:ro,Z
+
+  envoy:
+    image: envoyproxy/envoy:v1.35-latest
+    user: "0"
+    entrypoint: ["/usr/local/bin/envoy"]
+    command:
+      - "-c"
+      - "/etc/envoy/envoy.yaml"
+    depends_on:
+      - keycloak
+      - nginx
+    ports:
+      - "4443:443"
+      - "9901:9901"
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro,Z
+      - ./envoy/certs:/etc/envoy/certs:ro,Z
+  alloy-onprem:
+    image: grafana/alloy:v1.19.2
+    command:
+      - run
+      - /etc/alloy/config.alloy
+    environment:
+      ALLOY_CLIENT_SECRET: demo-secret
+    volumes:
+      - ./alloy-onprem/config.alloy:/etc/alloy/config.alloy:ro,Z
+    depends_on:
+      - keycloak
+      - envoy
+  alloy-receiver:
+    image: grafana/alloy:v1.19.2
+    command:
+      - run
+      - --stability.level=experimental
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy-receiver/config.alloy:/etc/alloy/config.alloy:ro,Z
+    ports:
+      - "4317:4317"
+    depends_on:
+      - keycloak
+      - envoy

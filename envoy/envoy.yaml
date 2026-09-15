@@ -1,0 +1,185 @@
+static_resources:
+
+  listeners:
+    - name: https_listener
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 443
+
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                alpn_protocols:
+                  - h2
+                  - http/1.1
+
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /etc/envoy/certs/server.crt
+                    private_key:
+                      filename: /etc/envoy/certs/server.key
+
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+
+                stat_prefix: ingress_http
+
+                codec_type: AUTO
+
+                route_config:
+                  name: local_route
+
+                  virtual_hosts:
+                    - name: telemetry
+                      domains:
+                        - "*"
+
+                      routes:
+
+                        # --------------------------------
+                        # OAuth token endpoint
+                        # --------------------------------
+
+                        - match:
+                            prefix: /token
+
+                          route:
+                            cluster: keycloak
+
+                            prefix_rewrite: /realms/demo/protocol/openid-connect/token
+
+
+                        # --------------------------------
+                        # OTLP/gRPC
+                        # --------------------------------
+
+                        - match:
+                            prefix: /opentelemetry.proto.collector.metrics.v1.MetricsService/
+                          route:
+                            cluster: alloy_receiver
+
+                        - match:
+                            prefix: /opentelemetry.proto.collector.logs.v1.LogsService/
+                          route:
+                            cluster: alloy_receiver
+
+                        - match:
+                            prefix: /opentelemetry.proto.collector.trace.v1.TraceService/
+                          route:
+                            cluster: alloy_receiver
+
+
+                http_filters:
+
+                  # --------------------------------
+                  # JWT authentication
+                  # --------------------------------
+
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+
+                      providers:
+
+                        keycloak:
+                          issuer: "http://keycloak:443/realms/demo"
+
+                          audiences:
+                            - "account"
+
+                          remote_jwks:
+                            http_uri:
+                              uri: "http://keycloak:8080/realms/demo/protocol/openid-connect/certs"
+                              cluster: keycloak
+                              timeout: 5s
+
+                            cache_duration:
+                              seconds: 300
+
+                      rules:
+
+                        # Token endpoint does NOT require JWT
+                        - match:
+                            prefix: /token
+
+                        - match:
+                            prefix: /
+                          requires:
+                            provider_name: keycloak
+                        # OTLP DOES require JWT
+                        #- match:
+                        #    prefix: /opentelemetry.proto.collector.metrics.v1.MetricsService/
+                        #  requires:
+                        #    provider_name: keycloak
+
+                        #- match:
+                        #    prefix: /opentelemetry.proto.collector.logs.v1.LogsService/
+                        #  requires:
+                        #    provider_name: keycloak
+
+                        #- match:
+                        #    prefix: /opentelemetry.proto.collector.trace.v1.TraceService/
+                        #  requires:
+                        #    provider_name: keycloak
+
+
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+
+  clusters:
+
+    # --------------------------------
+    # Keycloak
+    # --------------------------------
+
+    - name: keycloak
+      type: STRICT_DNS
+      connect_timeout: 5s
+
+      load_assignment:
+        cluster_name: keycloak
+
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: keycloak
+                      port_value: 8080
+
+
+    # --------------------------------
+    # Internal Alloy receiver
+    # --------------------------------
+
+    - name: alloy_receiver
+      type: STRICT_DNS
+      connect_timeout: 5s
+
+      http2_protocol_options: {}
+
+      load_assignment:
+        cluster_name: alloy_receiver
+
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: alloy-receiver
+                      port_value: 4317
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
+

@@ -1,0 +1,27 @@
+{
+  "realm": "demo",
+  "enabled": true,
+
+  "clients": [
+    {
+      "clientId": "demo-client",
+      "enabled": true,
+
+      "clientAuthenticatorType": "client-secret",
+      "secret": "demo-secret",
+
+      "publicClient": false,
+
+      "serviceAccountsEnabled": true,
+
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+
+      "protocol": "openid-connect",
+
+      "attributes": {
+        "access.token.lifespan": "1200"
+      }
+    }
+  ]
+}
